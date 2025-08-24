@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  <title>WebSocket Chat</title>
+</head>
+<body>
+  <div class="chat-container">
+    <div class="messages-container" id="messages"></div>
+    <div class="message-input-container">
+      <input type="text" id="messageInput" placeholder="Type a message...">
+      <button id="sendButton">Send</button>
+    </div>
+  </div>
+
+  <script>
+let toxicMessageCount = 0;
+const maxToxicMessages = 3;
+const messagesDiv = document.getElementById('messages');
+const messageInput = document.getElementById('messageInput');
+const sendButton = document.getElementById('sendButton');
+const ws = new WebSocket('ws://localhost:3000');
+
+ws.addEventListener('message', (event) => {
+  const message = event.data;
+  displayMessage(message);
+});
+
+sendButton.addEventListener('click', () => {
+  const message = messageInput.value;
+  ws.send(message);
+  displayMessage(message, true);
+  messageInput.value = '';
+
+  // Send the message to the Flask API to check for toxicity
+  checkForToxicity(message);
+});
+
+function displayMessage(message, isSender = false) {
+  const messageContainer = document.createElement('div');
+  const messageElement = document.createElement('div');
+  messageElement.textContent = message;
+
+  messageContainer.classList.add('message-container');
+
+  if (isSender) {
+    messageContainer.classList.add('sender-message-container');
+    messageElement.classList.add('message-bubble', 'sender-message-bubble');
+  } else {
+    messageElement.classList.add('message-bubble');
+  }
+
+  messageContainer.appendChild(messageElement);
+  messagesDiv.appendChild(messageContainer);
+
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Function to call the Flask API to check for toxicity
+async function checkForToxicity(message) {
+  try {
+    const response = await fetch('http://localhost:5000/process_text', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input_text: message }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+
+      // Ensure the expected fields are present
+      if (data && data.predictedLables !== undefined && data.status !== undefined) {
+        const toxicityLabels = data.predictedLables;
+        const status = data.status;
+
+        // If the status is "No toxicity detected", handle accordingly
+        if (status === "No toxicity detected") {
+          console.log("No toxicity detected");
+        } else {
+          // Check if the status is a number (indicating the number of toxic labels)
+          if (typeof status === 'number' && status > 0) {
+            toxicMessageCount++;
+
+            // Display the bullying warning
+            showBullyingWarning();
+
+            // Check if the user has sent 10 toxic messages
+            if (toxicMessageCount >= maxToxicMessages) {
+              blockUser();
+            }
+          }
+        }
+      } else {
+        console.error('Invalid API response:', data);
+      }
+    } else {
+      console.error('Error checking toxicity:', response.statusText);
+    }
+  } catch (error) {
+    console.error('Error:', error);
+  }
+}
+
+function showBullyingWarning() {
+  alert(`This text contains inappropriate which voilates our policy, further voilence will lead to permanant ban from out text service. 
+  You have only  ${maxToxicMessages-toxicMessageCount} more attempts.`)
+  
+}
+
+function blockUser() {
+  // Disable the send button
+  sendButton.disabled = true;
+
+  // Show a final blocking message
+  const blockMessage = document.createElement('div');
+  blockMessage.classList.add('block-message');
+  blockMessage.textContent = "You have been blocked from sending messages due to repeated violation of our policy";
+  document.body.appendChild(blockMessage);
+
+  // Optionally, you can also hide the input field or show other UI elements to indicate blocking
+  messageInput.disabled = true;
+}
+  </script>
+</body>
+</html>
